@@ -15,3 +15,10 @@ This will take a long time to run as well**
 
 4) python ip_gen.py bank_as.json.dns bank_subdomains &> bank_ips
 **This will not take a long time at all**
+
+Abbreviated data is available in test/
+
+For example:
+python ip_gen.py test/bank_as.json.dns test/bank_subdomains
+
+will generate some example mappings
