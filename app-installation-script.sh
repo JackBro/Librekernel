@@ -845,6 +845,30 @@ install_modsecurity()
 }
 
 
+# -----------------------------------------------
+# Function to install ssl certificates
+# -----------------------------------------------
+install_certificates()
+{
+        echo "Installing certificates ..."
+        if [ ! -e certs ]; then
+                echo "Downloading certificates ..."
+                svn co https://github.com/Librerouter/Librekernel/trunk/certs
+                if [ $? -ne 0 ]; then
+                        echo "Error: unable to download certificates. Exiting ..."
+                        exit 3
+                fi
+        fi
+
+        # Moving certificates to nginx directory
+        rm -rf /etc/ssl/nginx/*
+        mv certs/* /etc/ssl/nginx/
+
+        # Cleanup
+        rm -rf certs
+}
+
+
 # ----------------------------------------------
 # Function to install nginx
 # ----------------------------------------------
@@ -2093,13 +2117,14 @@ if [ "$ARCH" == "x86_64" ]; then
         mysql-server mysql-client libmysqlclient-dev \
         gcc build-essential zlib1g zlib1g-dev zlibc \
         ruby-zip libssl-dev libyaml-dev libcurl4-openssl-dev \
-        ruby gem libapr1-dev libxslt1-dev checkinstall \
+        ruby ruby2.1 gem libapr1-dev libxslt1-dev checkinstall \
         libxml2-dev ruby-dev vim libmagickwand-dev imagemagick
         if [ $? -ne 0 ]; then
         	echo "Error: unable to install redmine. Exiting ..."
                 exit
         fi
 
+	rm -rf /opt/redmine
         mkdir /opt/redmine
         chown -R www-data /opt/redmine
         cd /opt/redmine
@@ -2146,38 +2171,113 @@ fi
 
 
 # ---------------------------------------------------------
-# Funtion to install ndpi package
+# Funtion to install ndpi and ndpi-netfilter package
 # ---------------------------------------------------------
 install_ndpi()
 {
         echo "Installing ndpi ..."
-        apt-get install -y --force-yes \
-        autogen automake autoconf libtool make libpcap-dev gcc
 
-        if [ ! -e nDPI ]; then
-                echo "Downloading ndpi ..."
-                git clone https://github.com/ntop/nDPI
+	# Installing dependencies
+	apt-get install -y --force-yes \
+	autogen automake make gcc \
+	linux-source libtool autoconf pkg-config subversion \
+	libpcap-dev iptables-dev linux-headers-amd64
+	
+	# Removing old source
+	rm -rf /usr/src/ndpi-netfilter
+
+	if [ ! -e ndpi-netfilter ]; then
+		echo "Downloading ndpi ..."
+		git clone https://github.com/betolj/ndpi-netfilter
                 if [ $? -ne 0 ]; then
                         echo "Unable to download ndpi. Exiting ..."
                         exit 3
                 fi
-        fi
+	fi
+	cp -r ndpi-netfilter /usr/src/
+	
+	# Extracting nDPI
+	cd /usr/src/ndpi-netfilter
+	tar xvfz nDPI.tar.gz
+	cd nDPI
 
-        # Compiling ndpi
-        cd nDPI/
-        ./autogen.sh
-        ./configure
-        make
-        make install
-        cd ../
+	# Building nDPI
+	./autogen.sh
+	./configure --with-pic
+	make
+	make install
         if [ $? -ne 0 ]; then
                 echo "Unable to install ndpi. Exiting ..."
                 exit 3
         fi
+
+	# Building nDPI-netfilter
+	cd ..
+	NDPI_PATH=/usr/src/ndpi-netfilter/nDPI make
+	make modules_install
+        if [ $? -ne 0 ]; then
+                echo "Unable to install ndpi-netfilter. Exiting ..."
+                exit 3
+        fi
+
+	# Connecting to xtables
+	cp /usr/src/ndpi-netfilter/ipt/libxt_ndpi.so /lib/xtables/
+
+	cd $INSTALL_HOME
 }
 
 
 # ----------------------------------------------
+# Function to install redsocks package
+# ----------------------------------------------
+install_redsocks()
+{
+        echo "Installing redsocks ..."
+
+        # Installing dependencies
+        apt-get install -y --force-yes \
+        iptables git-core libevent-2.0-5 libevent-dev
+
+        # Removing old source
+	cd /opt/
+        rm -rf redsocks
+
+        if [ ! -e redsocks ]; then
+                echo "Downloading redsocks..."
+                git clone https://github.com/darkk/redsocks
+                if [ $? -ne 0 ]; then
+                        echo "Unable to download redsocks. Exiting ..."
+                        exit 3
+                fi
+        fi
+
+        # Building nDPI
+        cd redsocks/
+        make
+        if [ $? -ne 0 ]; then
+                echo "Unable to install redsocks. Exiting ..."
+                exit 3
+        fi
+
+	cd $INSTALL_HOME
+}
+
+
+# -----------------------------------------------
+# Function to install ntopng
+# -----------------------------------------------
+install_ntopng()
+{
+        echo "Installing ntopng ..."
+        sudo apt-get -y --force-yes install ntopng
+        if [ $? -ne 0 ]; then
+                echo "Error: Unable to install ntopng. Exiting"
+                exit 3
+        fi      
+}
+
+
+# -----------------------------------------------
 # This function saves variables in file, so
 # parametization script can read and use these 
 # values
@@ -2188,7 +2288,7 @@ install_ndpi()
 #   EXT_INTERFACE
 #   INT_INTERFACE
 #   ARCH
-# ----------------------------------------------  
+# -----------------------------------------------  
 save_variables()
 {
         echo "Saving variables ..."
@@ -2268,6 +2368,7 @@ if [ "$PROCESSOR" = "Intel" -o "$PROCESSOR" = "AMD" -o "$PROCESSOR" = "ARM" ]; t
 	install_packages       	# Download and install packages	
 #	install_libressl	# Install Libressl package
 	install_modsecurity     # Install modsecurity package
+	install_certificates	# Install ssl certificates
 	install_nginx		# Install nginx package
 	install_mailpile	# Install Mailpile package
 	install_easyrtc		# Install EasyRTC package
@@ -2300,6 +2401,8 @@ if [ "$PROCESSOR" = "Intel" -o "$PROCESSOR" = "AMD" -o "$PROCESSOR" = "ARM" ]; t
 	install_trac		# Install trac package
 	install_redmine		# Install redmine package
 	install_ndpi		# Install ndpi package
+	install_redsocks	# Install redsocks package
+	install_ntopng		# Install ntopng package
 	save_variables	        # Save detected variables
 
 # ---------------------------------------------
